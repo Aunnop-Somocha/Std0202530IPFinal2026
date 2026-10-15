@@ -115,7 +115,11 @@ export default function DashboardScreen() {
         showAlert('Success', `Employee ${res.employee.name} updated successfully!`);
       }
     } catch (err: any) {
-      setEditError(err.message || 'Failed to update employee.');
+      if (err.message && (err.message.includes('404') || err.message.includes('Cannot PUT'))) {
+        setEditError('เซิร์ฟเวอร์ Backend ยังเป็นเวอร์ชันเก่า (ยังไม่ได้รัน server.js ตัวล่าสุดที่มี PUT /api/employees/:id) กรุณากด Ctrl+C แล้วดึง server.js ใหม่ใน SSH');
+      } else {
+        setEditError(err.message || 'Failed to update employee.');
+      }
     } finally {
       setEditSubmitting(false);
     }
