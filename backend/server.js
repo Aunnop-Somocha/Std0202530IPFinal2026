@@ -215,9 +215,9 @@ function calculateSalaryClusters(salariesList, k = 3) {
 // ==========================================
 // POST /api/login
 // Accept username and password in the request body.
-// If credentials are admin and password123, respond with Status 200 OK and {"success": true, "token": "mock-jwt-token"}.
+// If credentials match admin / password123 (or database user), respond with Status 200 OK and token.
 // If incorrect, respond with Status 401 Unauthorized and an error message.
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body || {};
 
   if (!username || !password) {
@@ -227,10 +227,32 @@ app.post('/api/login', (req, res) => {
     });
   }
 
+  // 1. Query MySQL AunSom_users table if database is connected
+  if (useDatabase && pool) {
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, username, role, name FROM \`AunSom_users\` WHERE username = ? AND password = ?`,
+        [username, password]
+      );
+
+      if (rows.length > 0) {
+        return res.status(200).json({
+          success: true,
+          token: 'mock-jwt-token',
+          user: rows[0]
+        });
+      }
+    } catch (err) {
+      console.log('Database login query fallback:', err.message);
+    }
+  }
+
+  // 2. Fallback / Standard Exam Requirement check
   if (username === 'admin' && password === 'password123') {
     return res.status(200).json({
       success: true,
-      token: 'mock-jwt-token'
+      token: 'mock-jwt-token',
+      user: { username: 'admin', role: 'admin', name: 'HR Administrator' }
     });
   }
 
