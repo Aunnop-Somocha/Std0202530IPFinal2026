@@ -700,36 +700,64 @@ export default function DashboardScreen() {
           </View>
 
           {/* Filter & Search Bar */}
-          <View style={styles.filterBar}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="🔍 Search name or position..."
-              placeholderTextColor="#64748b"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-
-            <View style={styles.filterChips}>
-              {(['All', 'Active', 'On Leave'] as const).map(status => (
-                <TouchableOpacity
-                  key={status}
-                  style={[
-                    styles.chip,
-                    statusFilter === status && styles.chipActive,
-                  ]}
-                  onPress={() => setStatusFilter(status)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      statusFilter === status && styles.chipTextActive,
-                    ]}
-                  >
-                    {status}
-                  </Text>
+          <View style={styles.searchSectionContainer}>
+            <View style={styles.searchLabelRow}>
+              <Text style={styles.searchSectionLabel}>🔍 ค้นหาชื่อพนักงาน (Search Employee)</Text>
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
+                  <Text style={styles.clearSearchBtnText}>✕ ล้างคำค้นหา</Text>
                 </TouchableOpacity>
-              ))}
+              ) : null}
             </View>
+
+            <View style={styles.searchInputWrapper}>
+              <Text style={styles.searchLeadingIcon}>🔎</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="พิมพ์ชื่อพนักงาน หรือตำแหน่งที่ต้องการค้นหา..."
+                placeholderTextColor="#94a3b8"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClearIcon}>
+                  <Text style={styles.searchClearIconText}>✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            <View style={styles.filterChipsRow}>
+              <Text style={styles.filterChipLabel}>ตัวกรองสถานะ:</Text>
+              <View style={styles.filterChips}>
+                {(['All', 'Active', 'On Leave'] as const).map(status => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[
+                      styles.chip,
+                      statusFilter === status && styles.chipActive,
+                    ]}
+                    onPress={() => setStatusFilter(status)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        statusFilter === status && styles.chipTextActive,
+                      ]}
+                    >
+                      {status === 'All' ? 'ทั้งหมด (All)' : status === 'Active' ? '🟢 Active' : '🟡 On Leave'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {searchQuery ? (
+              <View style={styles.searchResultBadge}>
+                <Text style={styles.searchResultBadgeText}>
+                  ผลการค้นหา "{searchQuery}": พบ {filteredEmployees.length} คน
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Loading Indicator */}
@@ -1379,19 +1407,95 @@ const styles = StyleSheet.create({
   listHeaderRow: {
     marginBottom: 14,
   },
+  searchSectionContainer: {
+    backgroundColor: '#0f172a',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    marginBottom: 16,
+    gap: 12,
+  },
+  searchLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  searchSectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#93c5fd',
+    letterSpacing: 0.3,
+  },
+  clearSearchBtn: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  clearSearchBtnText: {
+    fontSize: 11,
+    color: '#f87171',
+    fontWeight: '600',
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#3b82f6',
+    paddingHorizontal: 12,
+    height: 46,
+  },
+  searchLeadingIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    color: '#ffffff',
+    fontSize: 14,
+    outlineWidth: 0,
+  },
+  searchClearIcon: {
+    padding: 6,
+  },
+  searchClearIconText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  filterChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  filterChipLabel: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  searchResultBadge: {
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3b82f6',
+  },
+  searchResultBadgeText: {
+    fontSize: 12,
+    color: '#60a5fa',
+    fontWeight: '600',
+  },
   filterBar: {
     gap: 10,
     marginBottom: 16,
-  },
-  searchInput: {
-    backgroundColor: '#1f2937',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#374151',
-    paddingHorizontal: 14,
-    height: 42,
-    color: '#ffffff',
-    fontSize: 14,
   },
   filterChips: {
     flexDirection: 'row',
