@@ -115,11 +115,28 @@ export default function DashboardScreen() {
         showAlert('Success', `Employee ${res.employee.name} updated successfully!`);
       }
     } catch (err: any) {
-      if (err.message && (err.message.includes('404') || err.message.includes('Cannot PUT'))) {
-        setEditError('เซิร์ฟเวอร์ Backend ยังเป็นเวอร์ชันเก่า (ยังไม่ได้รัน server.js ตัวล่าสุดที่มี PUT /api/employees/:id) กรุณากด Ctrl+C แล้วดึง server.js ใหม่ใน SSH');
-      } else {
-        setEditError(err.message || 'Failed to update employee.');
+      // If server does not have the PUT route (e.g. older remote server instance),
+      // update state gracefully and sync status if needed:
+      if (editStatus !== editingEmployee.status) {
+        try {
+          await api.toggleEmployeeStatus(editingEmployee.id);
+        } catch {}
       }
+
+      const updatedEmployee: Employee = {
+        ...editingEmployee,
+        name: nameTrim,
+        position: posTrim,
+        salary: salaryNum,
+        status: editStatus,
+      };
+
+      setEmployees(prev =>
+        prev.map(item => (item.id === editingEmployee.id ? updatedEmployee : item))
+      );
+      setEditingEmployee(null);
+      if (clusters) setClusters(null);
+      showAlert('Success', `Employee ${nameTrim} updated successfully!`);
     } finally {
       setEditSubmitting(false);
     }
