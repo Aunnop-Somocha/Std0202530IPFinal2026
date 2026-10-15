@@ -29,8 +29,8 @@ const DB_USER = process.env.DB_USER || 'ip_std6730202530';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
 const DB_NAME = process.env.DB_NAME || 'ip_std6730202530';
 
-const EMPLOYEES_TABLE = 'AunSom_employees';
-const USERS_TABLE = 'AunSom_users';
+const EMPLOYEES_TABLE = process.env.EMPLOYEES_TABLE || process.env.TABLE_NAME || 'AunSom_employees';
+const USERS_TABLE = process.env.USERS_TABLE || 'AunSom_users';
 
 // MySQL Connection Pool
 const pool = mysql.createPool({
