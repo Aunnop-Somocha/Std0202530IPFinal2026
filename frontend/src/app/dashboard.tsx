@@ -57,6 +57,70 @@ export default function DashboardScreen() {
   // Toggle status loading indicator
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
+  // Edit employee modal states
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPosition, setEditPosition] = useState('');
+  const [editSalary, setEditSalary] = useState('');
+  const [editStatus, setEditStatus] = useState<'Active' | 'On Leave'>('Active');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const handleOpenEdit = (emp: Employee) => {
+    setEditingEmployee(emp);
+    setEditName(emp.name);
+    setEditPosition(emp.position);
+    setEditSalary(String(emp.salary));
+    setEditStatus(emp.status);
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingEmployee) return;
+    setEditError(null);
+
+    const nameTrim = editName.trim();
+    const posTrim = editPosition.trim();
+    const salTrim = editSalary.trim();
+
+    if (!nameTrim || !posTrim || !salTrim) {
+      const msg = 'All fields (Name, Position, and Salary) are required.';
+      setEditError(msg);
+      return;
+    }
+
+    const salaryNum = Number(salTrim);
+    if (isNaN(salaryNum) || salaryNum <= 0) {
+      const msg = 'Salary must be a valid positive number.';
+      setEditError(msg);
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const res = await api.updateEmployee(
+        editingEmployee.id,
+        nameTrim,
+        posTrim,
+        salaryNum,
+        editStatus
+      );
+
+      if (res && res.success) {
+        setEmployees(prev =>
+          prev.map(item => (item.id === editingEmployee.id ? res.employee : item))
+        );
+        setEditingEmployee(null);
+        if (clusters) setClusters(null);
+        showAlert('Success', `Employee ${res.employee.name} updated successfully!`);
+      }
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to update employee.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   // Initial fetch with Auth Guard
   useEffect(() => {
     if (!api.isAuthenticated()) {
@@ -737,8 +801,16 @@ export default function DashboardScreen() {
                         </Text>
                       </View>
 
-                      {/* Action Buttons: Toggle Status & Delete */}
+                      {/* Action Buttons: Edit, Toggle Status & Delete */}
                       <View style={styles.cardActions}>
+                        {/* Edit Employee Button */}
+                        <TouchableOpacity
+                          style={styles.editButton}
+                          onPress={() => handleOpenEdit(emp)}
+                        >
+                          <Text style={styles.editButtonText}>✏️ Edit</Text>
+                        </TouchableOpacity>
+
                         {/* Toggle Status Button */}
                         <TouchableOpacity
                           style={[
@@ -782,6 +854,125 @@ export default function DashboardScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Edit Employee Modal */}
+      <Modal
+        visible={!!editingEmployee}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingEmployee(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.modalTitle}>✏️ Edit Employee Details</Text>
+              <Text style={styles.modalSubtitle}>
+                Update employee information in database
+              </Text>
+            </View>
+
+            {editError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>⚠️ {editError}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.fieldLabel}>Employee Name *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Full name"
+                placeholderTextColor="#64748b"
+              />
+            </View>
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.fieldLabel}>Position *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={editPosition}
+                onChangeText={setEditPosition}
+                placeholder="Position / Title"
+                placeholderTextColor="#64748b"
+              />
+            </View>
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.fieldLabel}>Monthly Salary (THB) *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={editSalary}
+                onChangeText={setEditSalary}
+                keyboardType="numeric"
+                placeholder="Salary"
+                placeholderTextColor="#64748b"
+              />
+            </View>
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.fieldLabel}>Employment Status</Text>
+              <View style={styles.statusSelectRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.statusOption,
+                    editStatus === 'Active' && styles.statusOptionActive,
+                  ]}
+                  onPress={() => setEditStatus('Active')}
+                >
+                  <Text
+                    style={[
+                      styles.statusOptionText,
+                      editStatus === 'Active' && styles.statusOptionTextSelected,
+                    ]}
+                  >
+                    🟢 Active
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.statusOption,
+                    editStatus === 'On Leave' && styles.statusOptionOnLeave,
+                  ]}
+                  onPress={() => setEditStatus('On Leave')}
+                >
+                  <Text
+                    style={[
+                      styles.statusOptionText,
+                      editStatus === 'On Leave' && styles.statusOptionTextSelected,
+                    ]}
+                  >
+                    🟡 On Leave
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setEditingEmployee(null)}
+                disabled={editSubmitting}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveBtn}
+                onPress={handleSaveEdit}
+                disabled={editSubmitting}
+              >
+                {editSubmitting ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={styles.modalSaveBtnText}>💾 Save Changes</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Delete Confirmation Modal (Cross-platform and Web-safe) */}
       <Modal
@@ -1443,6 +1634,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalConfirmDeleteBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  editButton: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    borderColor: '#3b82f6',
+    borderWidth: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  editButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#60a5fa',
+  },
+  editModalHeader: {
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#94a3b8',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  modalInputGroup: {
+    width: '100%',
+    marginBottom: 14,
+    gap: 6,
+  },
+  statusSelectRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  statusOption: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#374151',
+    backgroundColor: '#1f2937',
+    alignItems: 'center',
+  },
+  statusOptionActive: {
+    borderColor: '#10b981',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+  },
+  statusOptionOnLeave: {
+    borderColor: '#f59e0b',
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+  },
+  statusOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  statusOptionTextSelected: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  modalSaveBtn: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalSaveBtnText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,

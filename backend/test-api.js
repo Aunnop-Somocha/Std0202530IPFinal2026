@@ -40,17 +40,25 @@ async function testAPI() {
   const newEmp = await res.json();
   console.log("5. POST (valid):", res.status, newEmp);
 
-  // 6. PUT status toggle
-  const idToToggle = newEmp.employee.id;
-  res = await fetch(`${base}/api/employees/${idToToggle}/status`, { method: "PUT" });
-  console.log("6. PUT /status:", res.status, await res.json());
+  // 6. PUT /api/employees/:id (Edit Employee)
+  const idToEdit = newEmp.employee.id;
+  res = await fetch(`${base}/api/employees/${idToEdit}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Sarawut Tech Senior", position: "Lead Architect", salary: 75000, status: "Active" })
+  });
+  console.log("6. PUT /employees/:id (Edit):", res.status, await res.json());
+
+  // 7. PUT status toggle
+  res = await fetch(`${base}/api/employees/${idToEdit}/status`, { method: "PUT" });
+  console.log("7. PUT /status:", res.status, await res.json());
 
   // 7. GET /api/employees/salary-clusters
   res = await fetch(`${base}/api/employees/salary-clusters`);
   console.log("7. GET /salary-clusters:", res.status, JSON.stringify(await res.json(), null, 2));
 
   // 8. DELETE employee
-  res = await fetch(`${base}/api/employees/${idToToggle}`, { method: "DELETE" });
+  res = await fetch(`${base}/api/employees/${idToEdit}`, { method: "DELETE" });
   console.log("8. DELETE:", res.status, await res.json());
 
   // 9. Reset

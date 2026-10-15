@@ -161,7 +161,21 @@ class ApiService {
     });
   }
 
-  // 4. PUT /api/employees/:id/status
+  // 4. PUT /api/employees/:id - Update full employee record
+  public async updateEmployee(
+    id: string,
+    name: string,
+    position: string,
+    salary: number,
+    status?: 'Active' | 'On Leave'
+  ): Promise<{ success: boolean; employee: Employee }> {
+    return await this.request<{ success: boolean; employee: Employee }>(`/api/employees/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, position, salary, status }),
+    });
+  }
+
+  // 5. PUT /api/employees/:id/status
   public async toggleEmployeeStatus(id: string): Promise<{ success: boolean; employee: Employee }> {
     return await this.request<{ success: boolean; employee: Employee }>(`/api/employees/${id}/status`, {
       method: 'PUT',

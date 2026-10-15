@@ -306,6 +306,74 @@ app.post('/api/employees', async (req, res) => {
   }
 });
 
+// [PUT] /api/employees/:id - Update full employee record (name, position, salary, status)
+app.put('/api/employees/:id', async (req, res) => {
+  const employeeId = String(req.params.id);
+  const { name, position, salary, status } = req.body || {};
+
+  if (
+    !name ||
+    typeof name !== 'string' ||
+    name.trim() === '' ||
+    !position ||
+    typeof position !== 'string' ||
+    position.trim() === '' ||
+    salary === undefined ||
+    salary === null ||
+    String(salary).trim() === '' ||
+    isNaN(Number(salary)) ||
+    Number(salary) <= 0
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'All fields (name, position, salary) are required and salary must be a positive number.'
+    });
+  }
+
+  const cleanName = name.trim();
+  const cleanPosition = position.trim();
+  const cleanSalary = Number(salary);
+  const cleanStatus = status === 'On Leave' ? 'On Leave' : 'Active';
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id FROM \`${EMPLOYEES_TABLE}\` WHERE id = ?`,
+      [employeeId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    await pool.query(
+      `UPDATE \`${EMPLOYEES_TABLE}\` SET name = ?, position = ?, status = ?, salary = ? WHERE id = ?`,
+      [cleanName, cleanPosition, cleanStatus, cleanSalary, employeeId]
+    );
+
+    const updated = {
+      id: employeeId,
+      name: cleanName,
+      position: cleanPosition,
+      status: cleanStatus,
+      salary: cleanSalary
+    };
+
+    return res.status(200).json({
+      success: true,
+      employee: updated
+    });
+  } catch (error) {
+    console.error('Error updating employee in MySQL:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update employee: ' + error.message
+    });
+  }
+});
+
 // [PUT] /api/employees/:id/status - Toggle employee status (Active <-> On Leave)
 app.put('/api/employees/:id/status', async (req, res) => {
   const employeeId = String(req.params.id);
@@ -488,7 +556,8 @@ app.get('/', (req, res) => {
           <li><code>POST /api/login</code> - Authenticate via <code>${USERS_TABLE}</code></li>
           <li><code>GET /api/employees</code> - Query <code>${EMPLOYEES_TABLE}</code></li>
           <li><code>POST /api/employees</code> - Insert into <code>${EMPLOYEES_TABLE}</code></li>
-          <li><code>PUT /api/employees/:id/status</code> - Update <code>${EMPLOYEES_TABLE}</code></li>
+          <li><code>PUT /api/employees/:id</code> - Update employee in <code>${EMPLOYEES_TABLE}</code></li>
+          <li><code>PUT /api/employees/:id/status</code> - Toggle status in <code>${EMPLOYEES_TABLE}</code></li>
           <li><code>DELETE /api/employees/:id</code> - Delete from <code>${EMPLOYEES_TABLE}</code></li>
           <li><code>GET /api/employees/salary-clusters</code> - K-Means Clustering</li>
           <li><code>POST /api/reset</code> - Reset records in <code>${EMPLOYEES_TABLE}</code></li>
