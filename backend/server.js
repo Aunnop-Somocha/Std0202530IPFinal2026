@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const app = express();
@@ -9,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Request logger for debugging and examiner inspection
+// Request logger
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.url}`);
@@ -17,9 +18,20 @@ app.use((req, res, next) => {
 });
 
 // ==========================================
-// In-Memory Employee Data Storage
-// (Initialized with 8 diverse mock employees)
+// Database & Storage Configuration
+// Table Name: AunSom_employees (Requested by User)
 // ==========================================
+const TABLE_NAME = process.env.TABLE_NAME || 'AunSom_employees';
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = parseInt(process.env.DB_PORT || '3306', 10);
+const DB_USER = process.env.DB_USER || 'ip_std6730202530';
+const DB_PASSWORD = process.env.DB_PASSWORD || '';
+const DB_NAME = process.env.DB_NAME || 'ip_std6730202530';
+
+let pool = null;
+let useDatabase = false;
+
+// Initial Mock Data (8 Employees for K-Means Clustering)
 const INITIAL_EMPLOYEES = [
   { id: '1', name: 'John Doe', position: 'Software Engineer', status: 'Active', salary: 45000 },
   { id: '2', name: 'Jane Smith', position: 'HR Manager', status: 'Active', salary: 52000 },
@@ -31,16 +43,70 @@ const INITIAL_EMPLOYEES = [
   { id: '8', name: 'David Miller', position: 'DevOps Engineer', status: 'On Leave', salary: 60000 }
 ];
 
-let employees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
+let inMemoryEmployees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
 let nextEmployeeId = 9;
+
+// ==========================================
+// Initialize MySQL Connection & Auto Table Setup
+// ==========================================
+async function initDatabase() {
+  try {
+    pool = mysql.createPool({
+      host: DB_HOST,
+      port: DB_PORT,
+      user: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      connectTimeout: 4000
+    });
+
+    // Test connection
+    const conn = await pool.getConnection();
+
+    // Auto-create table AunSom_employees if it does not exist
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL,
+        \`position\` VARCHAR(255) NOT NULL,
+        \`status\` ENUM('Active', 'On Leave') NOT NULL DEFAULT 'Active',
+        \`salary\` DECIMAL(12, 2) NOT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Check if table has data, seed if empty
+    const [rows] = await conn.query(`SELECT COUNT(*) AS count FROM \`${TABLE_NAME}\``);
+    if (rows[0].count === 0) {
+      console.log(`🌱 Seeding initial records into MySQL table: ${TABLE_NAME}...`);
+      for (const emp of INITIAL_EMPLOYEES) {
+        await conn.query(
+          `INSERT INTO \`${TABLE_NAME}\` (name, position, status, salary) VALUES (?, ?, ?, ?)`,
+          [emp.name, emp.position, emp.status, emp.salary]
+        );
+      }
+    }
+
+    conn.release();
+    useDatabase = true;
+    console.log(`✅ [MySQL Connected] Active table: \`${TABLE_NAME}\` in database \`${DB_NAME}\``);
+  } catch (err) {
+    useDatabase = false;
+    console.log(`ℹ️ [Storage Mode] Running with In-Memory Array persistence (${err.message})`);
+  }
+}
 
 // ==========================================
 // 1D K-Means Clustering Algorithm (k = 3)
 // ==========================================
-function calculateSalaryClusters(employeeList, k = 3) {
+function calculateSalaryClusters(salariesList, k = 3) {
   // Extract only the salary values from all current employees
-  const salaries = employeeList
-    .map(e => Number(e.salary))
+  const salaries = salariesList
+    .map(Number)
     .filter(s => !isNaN(s) && s > 0)
     .sort((a, b) => a - b);
 
@@ -179,14 +245,32 @@ app.post('/api/login', (req, res) => {
 // ==========================================
 
 // [GET] /api/employees - Return all employee records
-app.get('/api/employees', (req, res) => {
-  // Return array directly per REST convention, or wrapper object if needed
-  res.status(200).json(employees);
+app.get('/api/employees', async (req, res) => {
+  try {
+    if (useDatabase && pool) {
+      const [rows] = await pool.query(
+        `SELECT id, name, position, status, CAST(salary AS DOUBLE) AS salary FROM \`${TABLE_NAME}\` ORDER BY id ASC`
+      );
+      const formatted = rows.map(r => ({
+        id: String(r.id),
+        name: r.name,
+        position: r.position,
+        status: r.status,
+        salary: Number(r.salary)
+      }));
+      return res.status(200).json(formatted);
+    }
+
+    return res.status(200).json(inMemoryEmployees);
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    return res.status(200).json(inMemoryEmployees);
+  }
 });
 
 // [POST] /api/employees - Add a new employee
 // Must receive name, position, and salary. If any field is empty, respond with Status 400 Bad Request.
-app.post('/api/employees', (req, res) => {
+app.post('/api/employees', async (req, res) => {
   const { name, position, salary } = req.body || {};
 
   // Strict validation: check all fields
@@ -209,62 +293,172 @@ app.post('/api/employees', (req, res) => {
     });
   }
 
-  const newEmployee = {
-    id: String(nextEmployeeId++),
-    name: name.trim(),
-    position: position.trim(),
-    status: 'Active', // Default status is Active
-    salary: Number(salary) // Numeric field
-  };
+  const cleanName = name.trim();
+  const cleanPosition = position.trim();
+  const cleanSalary = Number(salary);
 
-  employees.push(newEmployee);
+  try {
+    if (useDatabase && pool) {
+      const [result] = await pool.query(
+        `INSERT INTO \`${TABLE_NAME}\` (name, position, status, salary) VALUES (?, ?, 'Active', ?)`,
+        [cleanName, cleanPosition, cleanSalary]
+      );
 
-  return res.status(201).json({
-    success: true,
-    employee: newEmployee
-  });
+      const createdEmployee = {
+        id: String(result.insertId),
+        name: cleanName,
+        position: cleanPosition,
+        status: 'Active',
+        salary: cleanSalary
+      };
+
+      return res.status(201).json({
+        success: true,
+        employee: createdEmployee
+      });
+    }
+
+    const newEmployee = {
+      id: String(nextEmployeeId++),
+      name: cleanName,
+      position: cleanPosition,
+      status: 'Active',
+      salary: cleanSalary
+    };
+
+    inMemoryEmployees.push(newEmployee);
+
+    return res.status(201).json({
+      success: true,
+      employee: newEmployee
+    });
+  } catch (error) {
+    console.error('Error creating employee:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create employee record'
+    });
+  }
 });
 
 // [PUT] /api/employees/:id/status - Toggle the employee's status (Active <-> On Leave)
-app.put('/api/employees/:id/status', (req, res) => {
+app.put('/api/employees/:id/status', async (req, res) => {
   const employeeId = String(req.params.id);
-  const employee = employees.find(e => String(e.id) === employeeId);
 
-  if (!employee) {
-    return res.status(404).json({
+  try {
+    if (useDatabase && pool) {
+      const [rows] = await pool.query(
+        `SELECT id, name, position, status, CAST(salary AS DOUBLE) AS salary FROM \`${TABLE_NAME}\` WHERE id = ?`,
+        [employeeId]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      const currentStatus = rows[0].status;
+      const newStatus = currentStatus === 'Active' ? 'On Leave' : 'Active';
+
+      await pool.query(
+        `UPDATE \`${TABLE_NAME}\` SET status = ? WHERE id = ?`,
+        [newStatus, employeeId]
+      );
+
+      const updated = {
+        id: String(rows[0].id),
+        name: rows[0].name,
+        position: rows[0].position,
+        status: newStatus,
+        salary: Number(rows[0].salary)
+      };
+
+      return res.status(200).json({
+        success: true,
+        employee: updated
+      });
+    }
+
+    const employee = inMemoryEmployees.find(e => String(e.id) === employeeId);
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    employee.status = employee.status === 'Active' ? 'On Leave' : 'Active';
+
+    return res.status(200).json({
+      success: true,
+      employee
+    });
+  } catch (error) {
+    console.error('Error toggling status:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Employee not found'
+      message: 'Failed to update employee status'
     });
   }
-
-  // Toggle status
-  employee.status = employee.status === 'Active' ? 'On Leave' : 'Active';
-
-  return res.status(200).json({
-    success: true,
-    employee
-  });
 });
 
 // [DELETE] /api/employees/:id - Remove the employee from the system
-app.delete('/api/employees/:id', (req, res) => {
+app.delete('/api/employees/:id', async (req, res) => {
   const employeeId = String(req.params.id);
-  const employeeIndex = employees.findIndex(e => String(e.id) === employeeId);
 
-  if (employeeIndex === -1) {
-    return res.status(404).json({
+  try {
+    if (useDatabase && pool) {
+      const [rows] = await pool.query(
+        `SELECT id, name, position, status, CAST(salary AS DOUBLE) AS salary FROM \`${TABLE_NAME}\` WHERE id = ?`,
+        [employeeId]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      await pool.query(`DELETE FROM \`${TABLE_NAME}\` WHERE id = ?`, [employeeId]);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Employee removed successfully',
+        employee: {
+          id: String(rows[0].id),
+          name: rows[0].name,
+          position: rows[0].position,
+          status: rows[0].status,
+          salary: Number(rows[0].salary)
+        }
+      });
+    }
+
+    const employeeIndex = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (employeeIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const [deletedEmployee] = inMemoryEmployees.splice(employeeIndex, 1);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Employee removed successfully',
+      employee: deletedEmployee
+    });
+  } catch (error) {
+    console.error('Error deleting employee:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Employee not found'
+      message: 'Failed to delete employee'
     });
   }
-
-  const [deletedEmployee] = employees.splice(employeeIndex, 1);
-
-  return res.status(200).json({
-    success: true,
-    message: 'Employee removed successfully',
-    employee: deletedEmployee
-  });
 });
 
 // ==========================================
@@ -272,9 +466,18 @@ app.delete('/api/employees/:id', (req, res) => {
 // ==========================================
 // [GET] /api/employees/salary-clusters
 // Respond with Status 200 OK containing the number of employees and the average salary (centroid) for each cluster.
-app.get('/api/employees/salary-clusters', (req, res) => {
+app.get('/api/employees/salary-clusters', async (req, res) => {
   try {
-    const clusters = calculateSalaryClusters(employees, 3);
+    let salaries = [];
+
+    if (useDatabase && pool) {
+      const [rows] = await pool.query(`SELECT CAST(salary AS DOUBLE) AS salary FROM \`${TABLE_NAME}\``);
+      salaries = rows.map(r => Number(r.salary));
+    } else {
+      salaries = inMemoryEmployees.map(e => Number(e.salary));
+    }
+
+    const clusters = calculateSalaryClusters(salaries, 3);
     return res.status(200).json({
       success: true,
       clusters
@@ -292,21 +495,44 @@ app.get('/api/employees/salary-clusters', (req, res) => {
 // Utility & Health Check Endpoints
 // ==========================================
 // Reset to initial mock data (Convenient for examiner or automated tests)
-app.post('/api/reset', (req, res) => {
-  employees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
-  nextEmployeeId = 9;
-  res.status(200).json({
-    success: true,
-    message: 'Employee database reset to initial 8 mock records',
-    count: employees.length
-  });
+app.post('/api/reset', async (req, res) => {
+  try {
+    if (useDatabase && pool) {
+      await pool.query(`DELETE FROM \`${TABLE_NAME}\``);
+      for (const emp of INITIAL_EMPLOYEES) {
+        await pool.query(
+          `INSERT INTO \`${TABLE_NAME}\` (name, position, status, salary) VALUES (?, ?, ?, ?)`,
+          [emp.name, emp.position, emp.status, emp.salary]
+        );
+      }
+      return res.status(200).json({
+        success: true,
+        message: `Table \`${TABLE_NAME}\` reset to initial 8 mock records`,
+        storage: 'MySQL',
+        count: INITIAL_EMPLOYEES.length
+      });
+    }
+
+    inMemoryEmployees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
+    nextEmployeeId = 9;
+    return res.status(200).json({
+      success: true,
+      message: 'Employee database reset to initial 8 mock records',
+      storage: 'In-Memory',
+      count: inMemoryEmployees.length
+    });
+  } catch (error) {
+    console.error('Error resetting database:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset database' });
+  }
 });
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     server: 'HR Manager & Salary Analytics API',
-    employeeCount: employees.length,
+    storageMode: useDatabase ? 'MySQL' : 'In-Memory',
+    tableName: TABLE_NAME,
     timestamp: new Date().toISOString()
   });
 });
@@ -318,7 +544,7 @@ app.get('/', (req, res) => {
       <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc;">
         <h1>🏢 HR Manager & Salary Analytics API</h1>
         <p>Status: <span style="color: #4ade80; font-weight: bold;">ONLINE</span></p>
-        <p>Current In-memory Employees: <strong>${employees.length}</strong></p>
+        <p>Storage Engine: <strong>${useDatabase ? `MySQL Table [${TABLE_NAME}]` : 'In-Memory Array'}</strong></p>
         <h3>Available Endpoints:</h3>
         <ul>
           <li><code>POST /api/login</code> - Authenticate (admin / password123)</li>
@@ -335,11 +561,13 @@ app.get('/', (req, res) => {
 });
 
 // Start Express Server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`====================================================`);
-  console.log(`🚀 HR Manager & Salary Analytics API Server Started`);
-  console.log(`📡 Listening on: http://localhost:${PORT}`);
-  console.log(`📊 In-memory employees loaded: ${employees.length}`);
-  console.log(`🔐 Credentials: admin / password123`);
-  console.log(`====================================================`);
+initDatabase().finally(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`====================================================`);
+    console.log(`🚀 HR Manager & Salary Analytics API Server Started`);
+    console.log(`📡 Listening on: http://localhost:${PORT}`);
+    console.log(`🗄️ Storage Table: \`${TABLE_NAME}\` (${useDatabase ? 'MySQL Database' : 'In-Memory Auto-Fallback'})`);
+    console.log(`🔐 Credentials: admin / password123`);
+    console.log(`====================================================`);
+  });
 });
