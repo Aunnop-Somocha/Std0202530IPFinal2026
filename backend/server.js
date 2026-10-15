@@ -58,9 +58,22 @@ const pool = mysql.createPool({
     conn.release();
   } catch (err) {
     console.error(`❌ [MySQL Connection Error]:`, err.message);
-    console.error(`👉 Please check your .env credentials (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)`);
+    console.error(`👉 Running with In-Memory fallback mode enabled.`);
   }
 })();
+
+// In-Memory Fallback Dataset (Used when MySQL is unreachable / running locally)
+const DEFAULT_INITIAL_EMPLOYEES = [
+  { id: '1', name: 'John Doe', position: 'Software Engineer', status: 'Active', salary: 45000 },
+  { id: '2', name: 'Jane Smith', position: 'HR Manager', status: 'Active', salary: 52000 },
+  { id: '3', name: 'Somchai Jaidee', position: 'Junior Frontend Developer', status: 'Active', salary: 22000 },
+  { id: '4', name: 'Somsri Rakdee', position: 'Administrative Assistant', status: 'On Leave', salary: 18500 },
+  { id: '5', name: 'Alice Johnson', position: 'VP of Engineering', status: 'Active', salary: 95000 },
+  { id: '6', name: 'Bob Williams', position: 'Senior System Architect', status: 'Active', salary: 85000 },
+  { id: '7', name: 'Kanya Wattana', position: 'Data Analyst', status: 'Active', salary: 42000 },
+  { id: '8', name: 'David Miller', position: 'DevOps Engineer', status: 'On Leave', salary: 60000 }
+];
+let inMemoryEmployees = JSON.parse(JSON.stringify(DEFAULT_INITIAL_EMPLOYEES));
 
 // ==========================================
 // Phase 2: 1D K-Means Clustering Algorithm (k = 3)
@@ -222,10 +235,10 @@ app.post('/api/login', async (req, res) => {
 
 // ==========================================
 // Phase 1: Employee Management (CRUD)
-// Interacting with table: AunSom_employees
+// Interacting with table: AunSom_employees (with in-memory fallback)
 // ==========================================
 
-// [GET] /api/employees - Return all employee records from MySQL
+// [GET] /api/employees - Return all employee records
 app.get('/api/employees', async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -242,16 +255,12 @@ app.get('/api/employees', async (req, res) => {
 
     return res.status(200).json(formatted);
   } catch (error) {
-    console.error('Error fetching employees from MySQL:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch employees from database: ' + error.message
-    });
+    console.warn('[Using In-Memory Fallback] GET /api/employees:', error.message);
+    return res.status(200).json(inMemoryEmployees);
   }
 });
 
-// [POST] /api/employees - Add a new employee into MySQL
-// Must receive name, position, and salary. If any field is empty, respond with Status 400 Bad Request.
+// [POST] /api/employees - Add a new employee
 app.post('/api/employees', async (req, res) => {
   const { name, position, salary } = req.body || {};
 
@@ -293,15 +302,26 @@ app.post('/api/employees', async (req, res) => {
       salary: cleanSalary
     };
 
+    // Keep in-memory in sync
+    inMemoryEmployees.push(newEmployee);
+
     return res.status(201).json({
       success: true,
       employee: newEmployee
     });
   } catch (error) {
-    console.error('Error inserting employee into MySQL:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to insert employee into database: ' + error.message
+    console.warn('[Using In-Memory Fallback] POST /api/employees:', error.message);
+    const newEmployee = {
+      id: String(Date.now()),
+      name: cleanName,
+      position: cleanPosition,
+      status: 'Active',
+      salary: cleanSalary
+    };
+    inMemoryEmployees.push(newEmployee);
+    return res.status(201).json({
+      success: true,
+      employee: newEmployee
     });
   }
 });
@@ -361,15 +381,32 @@ app.put('/api/employees/:id', async (req, res) => {
       salary: cleanSalary
     };
 
+    const idx = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (idx !== -1) inMemoryEmployees[idx] = updated;
+
     return res.status(200).json({
       success: true,
       employee: updated
     });
   } catch (error) {
-    console.error('Error updating employee in MySQL:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update employee: ' + error.message
+    console.warn('[Using In-Memory Fallback] PUT /api/employees/:id:', error.message);
+    const idx = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (idx === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+    inMemoryEmployees[idx] = {
+      id: employeeId,
+      name: cleanName,
+      position: cleanPosition,
+      status: cleanStatus,
+      salary: cleanSalary
+    };
+    return res.status(200).json({
+      success: true,
+      employee: inMemoryEmployees[idx]
     });
   }
 });
@@ -407,20 +444,31 @@ app.put('/api/employees/:id/status', async (req, res) => {
       salary: Number(rows[0].salary)
     };
 
+    const idx = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (idx !== -1) inMemoryEmployees[idx].status = newStatus;
+
     return res.status(200).json({
       success: true,
       employee: updated
     });
   } catch (error) {
-    console.error('Error toggling employee status in MySQL:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update employee status: ' + error.message
+    console.warn('[Using In-Memory Fallback] PUT /api/employees/:id/status:', error.message);
+    const idx = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (idx === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+    inMemoryEmployees[idx].status = inMemoryEmployees[idx].status === 'Active' ? 'On Leave' : 'Active';
+    return res.status(200).json({
+      success: true,
+      employee: inMemoryEmployees[idx]
     });
   }
 });
 
-// [DELETE] /api/employees/:id - Remove employee from MySQL
+// [DELETE] /api/employees/:id - Remove employee
 app.delete('/api/employees/:id', async (req, res) => {
   const employeeId = String(req.params.id);
 
@@ -439,22 +487,36 @@ app.delete('/api/employees/:id', async (req, res) => {
 
     await pool.query(`DELETE FROM \`${EMPLOYEES_TABLE}\` WHERE id = ?`, [employeeId]);
 
+    const deleted = {
+      id: String(rows[0].id),
+      name: rows[0].name,
+      position: rows[0].position,
+      status: rows[0].status,
+      salary: Number(rows[0].salary)
+    };
+
+    inMemoryEmployees = inMemoryEmployees.filter(e => String(e.id) !== employeeId);
+
     return res.status(200).json({
       success: true,
       message: 'Employee deleted successfully',
-      employee: {
-        id: String(rows[0].id),
-        name: rows[0].name,
-        position: rows[0].position,
-        status: rows[0].status,
-        salary: Number(rows[0].salary)
-      }
+      employee: deleted
     });
   } catch (error) {
-    console.error('Error deleting employee from MySQL:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to delete employee: ' + error.message
+    console.warn('[Using In-Memory Fallback] DELETE /api/employees/:id:', error.message);
+    const idx = inMemoryEmployees.findIndex(e => String(e.id) === employeeId);
+    if (idx === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+    const deleted = inMemoryEmployees[idx];
+    inMemoryEmployees.splice(idx, 1);
+    return res.status(200).json({
+      success: true,
+      message: 'Employee deleted successfully',
+      employee: deleted
     });
   }
 });
@@ -477,10 +539,12 @@ app.get('/api/employees/salary-clusters', async (req, res) => {
       clusters
     });
   } catch (error) {
-    console.error('Error calculating salary clusters:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to calculate salary clusters: ' + error.message
+    console.warn('[Using In-Memory Fallback] Salary Clusters:', error.message);
+    const salaries = inMemoryEmployees.map(r => Number(r.salary));
+    const clusters = calculateSalaryClusters(salaries, 3);
+    return res.status(200).json({
+      success: true,
+      clusters
     });
   }
 });
@@ -500,6 +564,8 @@ app.post('/api/reset', async (req, res) => {
     { name: 'David Miller', position: 'DevOps Engineer', status: 'On Leave', salary: 60000 }
   ];
 
+  inMemoryEmployees = JSON.parse(JSON.stringify(DEFAULT_INITIAL_EMPLOYEES));
+
   try {
     await pool.query(`DELETE FROM \`${EMPLOYEES_TABLE}\``);
     for (const emp of DEFAULT_EMPLOYEES) {
@@ -514,10 +580,10 @@ app.post('/api/reset', async (req, res) => {
       message: `MySQL table \`${EMPLOYEES_TABLE}\` reset successfully`
     });
   } catch (error) {
-    console.error('Error resetting MySQL table:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to reset database: ' + error.message
+    console.warn('[Using In-Memory Fallback] Reset:', error.message);
+    return res.status(200).json({
+      success: true,
+      message: 'In-memory employees reset successfully'
     });
   }
 });

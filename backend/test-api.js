@@ -1,6 +1,7 @@
 async function testAPI() {
-  const base = "http://localhost:5000";
-  console.log("=== Testing Backend Endpoints ===");
+  const port = process.env.PORT || 3049;
+  const base = `http://localhost:${port}`;
+  console.log("=== Testing Backend Endpoints on " + base + " ===");
 
   // 1. Login success
   let res = await fetch(`${base}/api/login`, {
